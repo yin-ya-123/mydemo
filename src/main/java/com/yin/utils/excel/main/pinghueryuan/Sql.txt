@@ -1,0 +1,25 @@
+
+SELECT
+    GROUPING(D.KFMC) XH,
+    COALESCE(d.KFMC,d.ZBLB||'合计') KFMC,
+    d.ZBLB,
+    SUM(CASE WHEN d.XMMC = '门诊发药'   THEN d.JJJE ELSE 0 END) AS 门诊发药,
+    SUM(CASE WHEN d.XMMC = '采购入库'   THEN d.JJJE ELSE 0 END) AS 采购入库,
+    SUM(CASE WHEN d.XMMC = '调拨出库'   THEN d.JJJE ELSE 0 END) AS 调拨出库,
+    SUM(CASE WHEN d.XMMC = '科室领用'   THEN d.JJJE ELSE 0 END) AS 科室领用,
+    SUM(CASE WHEN d.XMMC = '调拨入库'   THEN d.JJJE ELSE 0 END) AS 调拨入库,
+    SUM(CASE WHEN d.XMMC = '报损'       THEN d.JJJE ELSE 0 END) AS 报损,
+    SUM(CASE WHEN d.XMMC = '调价增值'   THEN d.JJJE ELSE 0 END) AS 调价增值,
+    SUM(CASE WHEN d.XMMC = '调价减值'   THEN d.JJJE ELSE 0 END) AS 调价减值,
+    SUM(CASE WHEN d.XMMC = '申请退药'   THEN d.JJJE ELSE 0 END) AS 申请退药,
+    SUM(CASE WHEN d.XMMC = '采购退库'   THEN d.JJJE ELSE 0 END) AS 采购退库,
+    SUM(CASE WHEN d.XMMC = '住院发药'   THEN d.JJJE ELSE 0 END) AS 住院发药,
+    SUM(CASE WHEN d.XMMC = '领药入库'   THEN d.JJJE ELSE 0 END) AS 领药入库,
+    SUM(CASE WHEN d.XMMC = '领用出库'   THEN d.JJJE ELSE 0 END) AS 领用出库,
+    SUM(CASE WHEN d.XMMC = '申领退药'   THEN d.JJJE ELSE 0 END) AS 申领退药,
+    SUM(d.JJJE) AS 合计
+FROM HISYFCRK d
+WHERE d.DWMC = '平湖市曹桥街道社区卫生服务中心'
+  AND d.CRKRQ BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'
+GROUP BY GROUPING SETS((d.ZBLB,d.KFMC),(ZBLB))
+order by d.ZBLB,XH

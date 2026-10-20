@@ -1,0 +1,452 @@
+WITH
+--条件（支持多个库房）
+PAR AS
+ (SELECT to_date('2026-08-01 00:00:01', 'yyyy-mm-dd hh24:mi:ss') KSSJ,
+				 to_date('2026-08-31 23:59:59', 'yyyy-mm-dd hh24:mi:ss') JSSJ,
+				 '${KFID}' KFID_STR
+		FROM DUAL),
+-- 将库房字符串拆分为多行
+KF_LIST AS
+ (SELECT REGEXP_SUBSTR(KFID_STR, '[^,]+', 1, LEVEL) AS KFID
+		FROM PAR
+	CONNECT BY LEVEL <= REGEXP_COUNT(KFID_STR, ',') + 1),
+--调价信息
+TJXX AS
+ (SELECT DPAR.DEPOT_ID,
+				 DPAR.DRUG_ID,
+				 DPAR.DRUG_AREA_ID,
+				 TRUNC(DPAR.CREATE_DATE) RQ,
+				 nvl(sum(CASE
+									 WHEN DPAR.STOCK_AMOUNT > 0 THEN
+										ROUND(DPAR.STOCK_AMOUNT, 2)
+								 END),
+						 0) 调价增值进价,
+				 nvl(sum(CASE
+									 WHEN DPAR.STOCK_AMOUNT < 0 THEN
+										ROUND(-1 * DPAR.STOCK_AMOUNT, 2)
+								 END),
+						 0) 调价减值进价,
+				 nvl(sum(CASE
+									 WHEN DPAR.RETAIL_AMOUNT > 0 THEN
+										ROUND(DPAR.RETAIL_AMOUNT, 2)
+								 END),
+						 0) 调价增值售价,
+				 nvl(sum(CASE
+									 WHEN DPAR.RETAIL_AMOUNT < 0 THEN
+										ROUND(-1 * DPAR.RETAIL_AMOUNT, 2)
+								 END),
+						 0) 调价减值售价
+		FROM HIS.DRUG_PRICE_ADJUST_RECORD DPAR
+	 INNER JOIN KF_LIST KF
+			ON DPAR.DEPOT_ID = KF.KFID
+	 CROSS JOIN PAR
+	 WHERE DPAR.CREATE_DATE BETWEEN PAR.KSSJ AND PAR.JSSJ
+	 GROUP BY DPAR.DEPOT_ID,
+						DPAR.DRUG_ID,
+						DPAR.DRUG_AREA_ID,
+						TRUNC(DPAR.CREATE_DATE)),
+--结存库存
+JCSJ AS
+ (SELECT DEPOT_ID,
+				 DRUG_ID,
+				 DRUG_AREA_ID,
+				 RQ,
+         SUM(数量) 数量,
+				 SUM(期初结存进价) 期初结存进价,
+				 SUM(期初结存售价) 期初结存售价,
+				 SUM(期末结存进价) 期末结存进价,
+				 SUM(期末结存售价) 期末结存售价
+		FROM (SELECT DSM.DEPOT_ID,
+								 DSM.DRUG_ID,
+								 DSM.DRUG_AREA_ID,
+								 TRUNC(DSM.Record_Date) RQ,
+                 DSM.REAL_STORAGE 数量,
+								 (DSM.REAL_STORAGE * DSM.STOCK_PRICE) 期初结存进价,
+								 (DSM.REAL_STORAGE * DSM.RETAIL_PRICE) 期初结存售价,
+								 (DSM.REAL_STORAGE * DSM.STOCK_PRICE) 期末结存进价,
+								 (DSM.REAL_STORAGE * DSM.RETAIL_PRICE) 期末结存售价
+						FROM HIS.DRUG_STORAGE_DETAIL_MRJL DSM
+					 INNER JOIN KF_LIST KF
+							ON DSM.DEPOT_ID = KF.KFID
+					 CROSS JOIN PAR
+					 WHERE DSM.Record_Date >= TRUNC(PAR.KSSJ) - 1
+						 AND DSM.Record_Date <= TRUNC(PAR.JSSJ)
+					UNION ALL
+					SELECT DSM.DEPOT_ID,
+								 DSM.DRUG_ID,
+								 DSM.DRUG_AREA_ID,
+								 TRUNC(SYSDATE) RQ,
+                 DSM.REAL_STORAGE 数量,
+								 0 期初结存进价,
+								 0 期初结存售价,
+								 (DSM.REAL_STORAGE * DSM.STOCK_PRICE) 期末结存进价,
+								 (DSM.REAL_STORAGE * DSM.RETAIL_PRICE) 期末结存售价
+						FROM HIS.DRUG_STORAGE_DETAIL DSM
+					 INNER JOIN KF_LIST KF
+							ON DSM.DEPOT_ID = KF.KFID
+					 CROSS JOIN PAR
+					 WHERE TRUNC(PAR.JSSJ) >= TRUNC(SYSDATE))
+	 GROUP BY DEPOT_ID, DRUG_ID, DRUG_AREA_ID, RQ),
+--药房出入库（修正：直接使用 KF_LIST，不再依赖 PAR.KFID）
+YFRCK AS
+ (SELECT KF.KFID AS DEPOT_ID,
+				 DID.DRUG_ID,
+				 DID.DRUG_AREA_ID,
+				 TRUNC((CASE
+								 WHEN LX.LX_ID = '3' AND MBKF.TYPE = '5' THEN
+									DI.AUDIT_DATE
+								 WHEN LX.LX_ID = '3' AND MBKF.TYPE <> '5' THEN
+									DI.RECEIVE_DATE
+								 WHEN LX.LX_ID = '6' THEN
+									DI.RECEIVE_DATE
+								 WHEN LX.LX_ID = '7' THEN
+									DI.RECEIVE_DATE
+								 WHEN LX.FL_ID = '3' THEN
+									DI.AUDIT_DATE
+								 WHEN LX.FL_ID = '4' THEN
+									DI.RECEIVE_DATE
+							 END)) RQ,
+         SUM(did.AMOUNT_ACT/did.factor*(SELECT d.unit_factor FROM DICTMANAGE.DICT_DRUG_FACTOR d where d.depot_id =kf.KFID and d.del_flag='0' and d.drug_id=DID.DRUG_ID and rownum=1)) 数量,
+				 --进价
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND MBKF.TYPE = '5' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 药房出库进价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.TYPE = '5' AND MBKF.TYPE <> '5' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 药房入库进价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.DEPOT_CODE = KF.KFID AND
+										MBKF.TYPE <> '5' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 药房出库给药房进价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.TYPE <> '5' AND
+										QSKF.DEPOT_CODE <> KF.KFID AND MBKF.Depot_Code = KF.KFID THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 其他药房出库给药房,
+				 SUM(CASE
+							 WHEN LX.LX_ID IN ('6') AND DI.SY_FLAG = '1' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 报益进价,
+				 -SUM(CASE
+								WHEN LX.LX_ID IN ('6') AND DI.SY_FLAG = '2' THEN
+								 did.AMOUNT_ACT * did.STOCK_PRICE
+								ELSE
+								 0
+							END) 报损进价,
+				 SUM(CASE
+							 WHEN LX.LX_ID IN ('7') AND DID.AMOUNT_ACT > 0 THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 盘盈进价,
+				 -SUM(CASE
+								WHEN LX.LX_ID IN ('7') AND DID.AMOUNT_ACT < 0 THEN
+								 did.AMOUNT_ACT * did.STOCK_PRICE
+								ELSE
+								 0
+							END) 盘亏进价,
+				 SUM(CASE
+							 WHEN LX.FL_ID = '3' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 药库其他所有出库进价,
+				 SUM(CASE
+							 WHEN LX.FL_ID = '4' THEN
+								did.AMOUNT_ACT * did.STOCK_PRICE
+							 ELSE
+								0
+						 END) 药库其他所有入库进价,
+				 --售价
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND MBKF.TYPE = '5' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 药房出库售价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.TYPE = '5' AND MBKF.TYPE <> '5' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 药房入库售价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.DEPOT_CODE = KF.KFID AND
+										MBKF.TYPE <> '5' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 药房出库给药房售价,
+				 SUM(CASE
+							 WHEN LX.LX_ID = '3' AND QSKF.TYPE <> '5' AND
+										QSKF.DEPOT_CODE <> KF.KFID AND MBKF.Depot_Code = KF.KFID THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 其他药房出库给售价,
+				 SUM(CASE
+							 WHEN LX.LX_ID IN ('6') AND DI.SY_FLAG = '1' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 报益售价,
+				 -SUM(CASE
+								WHEN LX.LX_ID IN ('6') AND DI.SY_FLAG = '2' THEN
+								 did.AMOUNT_ACT * did.retail_price
+								ELSE
+								 0
+							END) 报损售价,
+				 SUM(CASE
+							 WHEN LX.LX_ID IN ('7') AND DID.AMOUNT_ACT > 0 THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 盘盈售价,
+				 -SUM(CASE
+								WHEN LX.LX_ID IN ('7') AND DID.AMOUNT_ACT < 0 THEN
+								 did.AMOUNT_ACT * did.retail_price
+								ELSE
+								 0
+							END) 盘亏售价,
+				 SUM(CASE
+							 WHEN LX.FL_ID = '3' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 药库其他所有出库售价,
+				 SUM(CASE
+							 WHEN LX.FL_ID = '4' THEN
+								did.AMOUNT_ACT * did.retail_price
+							 ELSE
+								0
+						 END) 药库其他所有入库售价
+		FROM KF_LIST KF
+	 CROSS JOIN PAR
+	 INNER JOIN his.drug_inoutdepot di
+			ON (DI.INDEPOT_ID = KF.KFID OR DI.OUTDEPOT_ID = KF.KFID)
+	 INNER JOIN his.DRUG_INOUTDEPOT_DETAIL did
+      ON did.INOUT_NO = di.INOUT_NO
+    LEFT JOIN DICTMANAGE.Dict_Depot QSKF
+      ON DI.OUTDEPOT_ID = QSKF.DEPOT_CODE
+    LEFT JOIN DICTMANAGE.Dict_Depot MBKF
+      ON DI.INDEPOT_ID = MBKF.DEPOT_CODE
+    JOIN DICTMANAGE.Dict_Inoutdepot_Type lx
+      ON di.inout_type = lx.lx_id
+   WHERE DI.DEL_FLAG = '0'
+     AND DID.DEL_FLAG = '0'
+     AND (CASE
+           WHEN LX.LX_ID = '3' AND MBKF.TYPE = '5' THEN
+            DI.AUDIT_DATE
+           WHEN LX.LX_ID = '3' AND MBKF.TYPE <> '5' THEN
+            DI.RECEIVE_DATE
+           WHEN LX.LX_ID = '6' THEN
+            DI.RECEIVE_DATE
+           WHEN LX.LX_ID = '7' THEN
+            DI.RECEIVE_DATE
+           WHEN LX.FL_ID = '3' THEN
+            DI.AUDIT_DATE
+           WHEN LX.FL_ID = '4' THEN
+            DI.RECEIVE_DATE
+         END) BETWEEN PAR.KSSJ AND PAR.JSSJ
+   GROUP BY KF.KFID,
+            DID.DRUG_AREA_ID,
+            DID.DRUG_ID,
+            TRUNC((CASE
+                    WHEN LX.LX_ID = '3' AND MBKF.TYPE = '5' THEN
+                     DI.AUDIT_DATE
+                    WHEN LX.LX_ID = '3' AND MBKF.TYPE <> '5' THEN
+                     DI.RECEIVE_DATE
+                    WHEN LX.LX_ID = '6' THEN
+                     DI.RECEIVE_DATE
+                    WHEN LX.LX_ID = '7' THEN
+                     DI.RECEIVE_DATE
+                    WHEN LX.FL_ID = '3' THEN
+                     DI.AUDIT_DATE
+                    WHEN LX.FL_ID = '4' THEN
+                     DI.RECEIVE_DATE
+                  END))),
+--门诊费用
+MZFYXX AS
+ (SELECT ODD.FYYF_ID AS DEPOT_ID,
+         ODD.SFXM_ID DRUG_ID,
+         ODD.YPCD_ID DRUG_AREA_ID,
+         TRUNC(ODD.FY_RQ) RQ,
+         sum(odd.sfxm_sl) 数量,
+         SUM(ODD.SFXM_SL * ODD.Sfxm_Jhj) AS jhJE,
+         SUM(ODD.SFXM_SL * ODD.SFXM_DJ) AS JE
+    FROM HIS.OUTPAT_DISPENSE_DETAIL ODD
+   CROSS JOIN PAR
+   INNER JOIN KF_LIST KF
+      ON ODD.FYYF_ID = KF.KFID
+   WHERE ODD.QXBZ IN ('0', '3')
+     AND ODD.FY_RQ BETWEEN par.kssj AND par.jssj
+   GROUP BY ODD.FYYF_ID, ODD.SFXM_ID, ODD.YPCD_ID, TRUNC(ODD.FY_RQ)),
+--住院费用
+ZYFYXX AS
+ (SELECT ZYFY.FY_YFID AS DEPOT_ID,
+         ZYFY.SFXM_ID DRUG_ID,
+         ZYFY.CD_ID DRUG_AREA_ID,
+         TRUNC(ZYFY.FY_RQ) RQ,
+         SUM(ZYFY.SFXM_SL) 数量,
+         SUM(ZYFY.SFXM_SL * ZYFY.SFXM_JHJ) AS jhJE,
+         SUM(ZYFY.SFXM_SL * ZYFY.SFXM_DJ) JE
+    FROM HIS.INPAT_DISPENS_DETAIL ZYFY
+   CROSS JOIN PAR
+   INNER JOIN KF_LIST KF
+      ON ZYFY.FY_YFID = KF.KFID
+   WHERE ZYFY.FY_STATUS IN ('2', '7')
+     AND ZYFY.FY_RQ >= par.kssj
+     AND ZYFY.FY_RQ <= par.jssj
+   GROUP BY ZYFY.FY_YFID, ZYFY.SFXM_ID, ZYFY.CD_ID, TRUNC(ZYFY.FY_RQ)),
+KCXX AS
+ (SELECT sjts RQ, KC.DEPOT_ID, KC.DRUG_ID, KC.DRUG_AREA_ID
+    FROM HIS.DRUG_STORAGE KC
+   INNER JOIN KF_LIST KF
+      ON KC.DEPOT_ID = KF.KFID,
+   (SELECT sjts
+            FROM (SELECT TRUNC(par.kssj) AS QR_DATE, -- 确认日期（截断到日）
+                         TRUNC(par.jssj) AS TZ_DATE -- 调整日期（截断到日）
+                    from dual, par)
+          --CROSS JOIN LATERAL 允许右侧的表或子查询引用左侧表中的列
+           CROSS JOIN LATERAL (SELECT LEVEL CS, QR_DATE + LEVEL - 1 SJTS
+                                FROM DUAL A
+                              CONNECT BY LEVEL <= TZ_DATE - QR_DATE + 1) B)),
+DDD AS
+ (
+  --最终汇总（进价 + 售价）
+  SELECT
+          ANY_VALUE(YY.YYMC) YYMC,
+          YY.HOSP_SN,
+          KF.DEPOT_NAME AS 库房名称,
+          KF.DEPOT_CODE,
+          A.DRUG_ID,
+					A.DRUG_AREA_ID,
+					Y.Drug_Name,
+          SUM(NVL(B1.期初结存售价, 0)) +
+          SUM(NVL(C.药房入库售价, 0) - NVL(C.药房出库售价, 0) + NVL(C.报益售价, 0) +
+              NVL(C.药库其他所有入库售价, 0) + NVL(C.其他药房出库给售价, 0) + NVL(C.盘盈售价, 0)) -
+          SUM(NVL(C.报损售价, 0) + NVL(C.药库其他所有出库售价, 0) +
+              NVL(C.药房出库给药房售价, 0) + NVL(C.盘亏售价, 0) + NVL(E.JE, 0) +
+              NVL(F.JE, 0)) + SUM(NVL(D.调价增值售价, 0)) -
+          SUM(NVL(D.调价减值售价, 0)) - SUM(NVL(B2.期末结存售价, 0)) 尾差售价,
+          SUM(NVL(B1.期初结存进价, 0)) +
+          SUM(NVL(C.药房入库进价, 0) - NVL(C.药房出库进价, 0) + NVL(C.报益进价, 0) +
+              NVL(C.药库其他所有入库进价, 0) + NVL(C.其他药房出库给药房, 0) + NVL(C.盘盈进价, 0)) -
+          SUM(NVL(C.报损进价, 0) + NVL(C.药库其他所有出库进价, 0) +
+              NVL(C.药房出库给药房进价, 0) + NVL(C.盘亏进价, 0) + NVL(E.jhJE, 0) +
+              NVL(F.JE, 0)) + SUM(NVL(D.调价增值进价, 0)) -
+          SUM(NVL(D.调价减值进价, 0)) - SUM(NVL(B2.期末结存进价, 0)) 尾差进价,
+          (SUM(NVL(B1.数量, 0))+ SUM(NVL(C.数量, 0))- SUM(NVL(E.数量, 0)) -SUM(NVL(F.数量, 0))-SUM(NVL(B2.数量, 0))) 数量尾差,
+          SUM(NVL(B1.数量, 0)) 期初数量,
+           SUM(NVL(C.数量, 0)) 入出库数量,
+          SUM(NVL(E.数量, 0))  门诊数量,
+          SUM(NVL(F.数量, 0)) 住院数量,
+          SUM(NVL(B2.数量, 0)) 期末数量,
+          -- ========== 进价部分 ==========
+          SUM(NVL(B1.期初结存进价, 0)) 期初结存进价,
+          SUM(NVL(C.药房入库进价, 0)) 药房入库进价,
+          SUM(NVL(C.药房出库进价, 0)) 药房出库进价,
+          SUM(NVL(C.报益进价, 0)) 报益进价,
+          SUM(NVL(C.药库其他所有入库进价, 0)) 药库其他所有入库进价,
+          SUM(NVL(C.其他药房出库给药房, 0)) 其他药房调入进价,
+          SUM(NVL(C.盘盈进价, 0)) 盘盈进价,
+          SUM(NVL(C.药房入库进价, 0) - NVL(C.药房出库进价, 0) + NVL(C.报益进价, 0) +
+              NVL(C.药库其他所有入库进价, 0) + NVL(C.其他药房出库给药房, 0) + NVL(C.盘盈进价, 0)) 收入合计进价,
+          SUM(NVL(C.报损进价, 0)) 报损进价,
+          SUM(NVL(C.药库其他所有出库进价, 0)) 药库其他所有出库进价,
+          SUM(NVL(E.jhJE, 0)) 门诊发药进价,
+          SUM(NVL(F.JE, 0)) 住院发药进价,
+          SUM(NVL(C.药房出库给药房进价, 0)) 调出其他药房进价,
+          SUM(NVL(C.盘亏进价, 0)) 盘亏进价,
+          SUM(NVL(C.报损进价, 0) + NVL(C.药库其他所有出库进价, 0) +
+              NVL(C.药房出库给药房进价, 0) + NVL(C.盘亏进价, 0) + NVL(E.jhJE, 0) +
+              NVL(F.JE, 0)) 支出合计进价,
+          SUM(NVL(D.调价增值进价, 0)) 调价增值进价,
+          SUM(NVL(D.调价减值进价, 0)) 调价减值进价,
+          SUM(NVL(B2.期末结存进价, 0)) 期末结存进价,
+          -- ========== 售价部分 ==========
+          '========== 售价部分 ==========',
+          SUM(NVL(B1.期初结存售价, 0)) 期初结存售价,
+          SUM(NVL(C.药房入库售价, 0)) 药房入库售价,
+          SUM(NVL(C.药房出库售价, 0)) 药房出库售价,
+          SUM(NVL(C.报益售价, 0)) 报益售价,
+          SUM(NVL(C.药库其他所有入库售价, 0)) 药库其他所有入库售价,
+          SUM(NVL(C.其他药房出库给售价, 0)) 其他药房调入售价,
+          SUM(NVL(C.盘盈售价, 0)) 盘盈售价,
+          SUM(NVL(C.药房入库售价, 0) - NVL(C.药房出库售价, 0) + NVL(C.报益售价, 0) +
+              NVL(C.药库其他所有入库售价, 0) + NVL(C.其他药房出库给售价, 0) + NVL(C.盘盈售价, 0)) 收入合计售价,
+          SUM(NVL(C.报损售价, 0)) 报损售价,
+          SUM(NVL(C.药库其他所有出库售价, 0)) 药库其他所有出库售价,
+          SUM(NVL(E.JE, 0)) 门诊发药售价, -- E.JE 即为售价金额
+          SUM(NVL(F.JE, 0)) 住院发药售价, -- F.JE 即为售价金额
+          SUM(NVL(C.药房出库给药房售价, 0)) 调出其他药房售价,
+          SUM(NVL(C.盘亏售价, 0)) 盘亏售价,
+          SUM(NVL(C.报损售价, 0) + NVL(C.药库其他所有出库售价, 0) +
+              NVL(C.药房出库给药房售价, 0) + NVL(C.盘亏售价, 0) + NVL(E.JE, 0) +
+              NVL(F.JE, 0)) 支出合计售价,
+          SUM(NVL(D.调价增值售价, 0)) 调价增值售价,
+          SUM(NVL(D.调价减值售价, 0)) 调价减值售价,
+          SUM(NVL(B2.期末结存售价, 0)) 期末结存售价
+    FROM KCXX A
+    LEFT JOIN JCSJ B1 --期初
+      ON A.DEPOT_ID = B1.DEPOT_ID
+     AND A.DRUG_ID = B1.DRUG_ID
+     AND A.DRUG_AREA_ID = B1.DRUG_AREA_ID
+     AND A.RQ = B1.RQ + 1
+    LEFT JOIN JCSJ B2 --期末
+      ON A.DEPOT_ID = B2.DEPOT_ID
+     AND A.DRUG_ID = B2.DRUG_ID
+     AND A.DRUG_AREA_ID = B2.DRUG_AREA_ID
+     AND A.RQ = B2.RQ
+    LEFT JOIN YFRCK C
+      ON A.DEPOT_ID = C.DEPOT_ID
+     AND A.DRUG_ID = C.DRUG_ID
+     AND A.DRUG_AREA_ID = C.DRUG_AREA_ID
+     AND A.RQ = C.RQ
+    LEFT JOIN TJXX D
+      ON A.DEPOT_ID = D.DEPOT_ID
+     AND A.DRUG_ID = D.DRUG_ID
+     AND A.DRUG_AREA_ID = D.DRUG_AREA_ID
+     AND A.RQ = D.RQ
+    LEFT JOIN MZFYXX E
+      ON A.DEPOT_ID = E.DEPOT_ID
+     AND A.DRUG_ID = E.DRUG_ID
+     AND A.DRUG_AREA_ID = E.DRUG_AREA_ID
+     AND A.RQ = E.RQ
+    LEFT JOIN ZYFYXX F
+      ON A.DEPOT_ID = F.DEPOT_ID
+     AND A.DRUG_ID = F.DRUG_ID
+     AND A.DRUG_AREA_ID = F.DRUG_AREA_ID
+     AND A.RQ = F.RQ
+    LEFT JOIN DICTMANAGE.DRUG_INFO YP
+      ON A.DRUG_ID = YP.DRUG_ID
+     AND A.DRUG_AREA_ID = YP.AREA_ID
+    LEFT JOIN DICTMANAGE.DICT_DEPOT KF
+      ON A.DEPOT_ID = KF.DEPOT_CODE
+    LEFT JOIN DICTMANAGE.DICT_HOSPINFO YY
+      ON KF.HOSPITAL_CODE = YY.HOSP_SN
+    JOIN DICTMANAGE.DRUG_INFO Y
+      ON A.DRUG_ID = Y.DRUG_ID
+   GROUP BY KF.DEPOT_NAME,
+             KF.DEPOT_CODE,
+             YY.HOSP_SN,
+             A.DRUG_ID,
+					A.DRUG_AREA_ID,
+					Y.Drug_Name)
+SELECT DDD.*
+  FROM DDD
+where (尾差进价 <> 0 OR 尾差售价 <> 0)
+ ORDER BY HOSP_SN

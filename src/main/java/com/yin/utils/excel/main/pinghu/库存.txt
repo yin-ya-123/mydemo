@@ -1,0 +1,8 @@
+SELECT
+m.*
+FROM
+his.drug_storage_detail_mrjl m
+where m.depot_id='${KFID}'
+and m.drug_id='${DRUG_ID}'
+and m.record_date >=date'2026-08-31'
+order by m.record_date

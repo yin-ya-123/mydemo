@@ -1,0 +1,70 @@
+server:
+  port: 8081
+spring:
+  servlet:
+    multipart: #配置文件上传文件大小
+      max-file-size: 50MB  #单个数据大小
+      max-request-size: 100MB #总数据大小
+  datasource:
+    dynamic:
+      primary: master
+      strict: false
+      datasource:
+        master:
+          driverClassName: oracle.jdbc.driver.OracleDriver
+          url: jdbc:oracle:thin:@127.0.0.1:1521/orcl
+          username: YIN
+          password: 123456
+        #          driver-class-name: oracle.jdbc.driver.OracleDriver
+        #          url: jdbc:oracle:thin:@10.173.96.131/htbase
+        #          username: system
+        #          password: haitaiinc
+        #        oracle2:
+        #          driverClassName: oracle.jdbc.driver.OracleDriver
+        #          url: jdbc:oracle:thin:@127.0.0.1:8089/orcl
+        #          username: system
+        #          password: 123456
+        #        eyHis:
+        #          driver-class-name: oracle.jdbc.driver.OracleDriver
+        #          url: jdbc:oracle:thin:@172.30.30.195/htbase
+        #          username: system
+        #          password: Oracle1q2w
+        #        hjHis:
+        #          driver-class-name: com.kingbase8.Driver
+        #          url: jdbc:kingbase8://10.53.82.35:54321/htbase
+        #          username: system
+        #          password: 12345678ab
+        phHis:
+          driver-class-name: oracle.jdbc.driver.OracleDriver
+          url: jdbc:oracle:thin:@10.173.96.184:1521/htbase_dg
+          username: system
+          password: haitaiinc
+#          driver-class-name: dm.jdbc.driver.DmDriver
+#          url: jdbc:dm://10.173.96.130:5236
+#          username: HISDJNEW
+#          password: Hisdjnew@9857
+#        phHis:
+#          driver-class-name: oracle.jdbc.driver.OracleDriver
+#          url: jdbc:oracle:thin:@127.0.0.1:30089/htbase
+#          username: system
+#          password: haitaiinc
+#        jnHis:
+#          driver-class-name: oracle.jdbc.driver.OracleDriver
+#          url: jdbc:oracle:thin:@192.168.10.50/htbase
+#          username: his
+#          password: DBa54321
+#        whHis:
+#          driver-class-name: dm.jdbc.driver.DmDriver
+#          url: jdbc:dm://dmdsc?dmdsc=(10.249.2.24:5136,10.249.2.25:5136,10.249.2.21:5136)&LOGIN_MODE=1&loginDscCtrl=1
+#          username: SYSDBA
+#          password: Dameng_123
+
+mybatis-plus:
+  configuration:
+    #在映射实体或者属性时，将数据库中表名和字段名中的下划线去掉，按照驼峰命名法映射
+    map-underscore-to-camel-case: true
+  #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: ASSIGN_ID #不需要手动设置ID，如果手动设置ID，则会使用自己设置的值
+  mapper-locations: classpath:com/yin/mapper/xml/*.xml

@@ -1,0 +1,11 @@
+SELECT  to_char(m.record_date,'yyyy-mm-dd') record_date,m.record_id,'-' INI_ID, m.batch_no, m.depot_id, m.drug_id,m.real_storage
+	FROM his.drug_storage_detail_mrjl m
+ where m.depot_id = ':KF'
+	 and m.drug_id = ':DRUG'
+	 and m.record_date >= date ':KSSJ'
+union all
+SELECT  to_char(trunc(sysdate),'yyyy-mm-dd'),'-',INI_ID, m.batch_no, m.depot_id, m.drug_id,m.real_storage
+	FROM his.drug_storage_detail m
+ where m.depot_id = ':KF'
+	 and m.drug_id = ':DRUG'
+	 and m.real_storage <> 0

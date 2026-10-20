@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yin.mapper.OrderDao">
+    <select id="streamDoHandler" resultType="com.yin.pojo.qt.yb.Zymxb"
+            resultSetType="FORWARD_ONLY" >
+        SELECT
+            ZYBR.pat_name xm,
+            ZYBR.xb xb,
+            ZYBR.sfz_hm sfzh,
+            ZYPJ.JS_RQ jssj,
+            ZYPJ.JS_RQ fssj,
+            ZYBR.ybxz fylb,
+            ML.XMDM xmbm,
+            ML.YP_MC mc,
+            ML.GG gg,
+            NVL(ML.dw,F_GETYPDW(MX.SFXM_ID,MX.CD_ID,'3')) dw,
+            CASE WHEN MI.JS_LSH IS NULL THEN '丙' ELSE
+                CASE WHEN MX.RET_YBFL='01' THEN '甲'
+                     WHEN MX.RET_YBFL ='02' THEN '乙'
+                     WHEN MX.RET_YBFL ='03' THEN '丙' ELSE '丙' END END ybdj,
+            MX.TS ts,
+            MX.RET6 zfbl,
+            '' lzje,
+            MX.RET7 zlzfje,
+            YS.XM ysxm,
+            BM.BM_MC ks,
+            (
+                SELECT TO_CHAR(WM_CONCAT(DISTINCT czd.Jb_Mc)) ZDXX FROM
+                    his.pat_inpat_diagnosis zd2
+                        INNER JOIN dictmanage.dict_icd czd ON ZD2.ZD_ICD=CZD.ICD_CODE
+                WHERE ZD2.ZYLSH=ZYBR.ZYLSH AND ZYPJ.ZYLSH=ZD2.ZYLSH
+            ) jbxx
+        FROM his.inpat_settle_invoice ZYPJ
+                 JOIN HIS.PAT_INPAT_ORDER_COST MX ON ZYPJ.JSLSH_ID=MX.JSLSH_ID AND ZYPJ.ZYLSH=MX.ZYLSH_ID
+                 left join mi_trans_info mi
+                           on ZYPJ.JSLSH_ID = mi.js_lsh
+                               and mi.mistatus in ('PAY_OK', 'RECEDE_OK', 'MI_OK')
+                 JOIN GZKBDML_MY ML ON MX.SFXM_ID=ML.YP_ID AND MX.Cd_Id=ML.Yp_Cd_Id
+                 JOIN HIS.V_INPAT_INFO ZYBR ON ZYPJ.ZYLSH=ZYBR.zylsh
+                 JOIN DICTMANAGE.DICT_EMPE YS ON MX.SQ_YSID=YS.KEYNO
+                 JOIN DICTMANAGE.DICT_DEPART BM ON MX.SQ_KSID=BM.BM_ID
+        WHERE
+            ((ZYPJ.zf_flag = '0' AND ZYPJ.js_zje > 0 AND ZYPJ.cjr &lt;&gt;  '99999999') OR
+             (ZYPJ.zf_flag = '1' and ZYPJ.js_zje > 0 and ZYPJ.cjr &lt;&gt;  '99999999'))
+          AND MX.FY_STATUS IN ('2','7')
+          AND ZYPJ.JS_RQ BETWEEN to_date('2019-01-01 00:00:00', 'yyyy-mm-dd hh24:mi:ss') AND to_date('2023-12-21 23:59:59', 'yyyy-mm-dd hh24:mi:ss')
+          --AND ZYPJ.JSLSH_ID='1567601'
+    </select>
+    <select id="selectList" resultType="com.yin.pojo.qt.yb.Zymxb">
+        SELECT
+            ZYBR.pat_name xm,
+            ZYBR.xb xb,
+            ZYBR.sfz_hm sfzh,
+            ZYPJ.JS_RQ jssj,
+            ZYPJ.JS_RQ fssj,
+            ZYBR.ybxz fylb,
+            ML.XMDM xmbm,
+            ML.YP_MC mc,
+            ML.GG gg,
+            NVL(ML.dw,F_GETYPDW(MX.SFXM_ID,MX.CD_ID,'3')) dw,
+            CASE WHEN MI.JS_LSH IS NULL THEN '丙' ELSE
+                CASE WHEN MX.RET_YBFL='01' THEN '甲'
+                     WHEN MX.RET_YBFL ='02' THEN '乙'
+                     WHEN MX.RET_YBFL ='03' THEN '丙' ELSE '丙' END END ybdj,
+            MX.TS ts,
+            MX.RET6 zfbl,
+            '' lzje,
+            MX.RET7 zlzfje,
+            YS.XM ysxm,
+            BM.BM_MC ks,
+            (
+                SELECT TO_CHAR(WM_CONCAT(DISTINCT czd.Jb_Mc)) ZDXX FROM
+                    his.pat_inpat_diagnosis zd2
+                        INNER JOIN dictmanage.dict_icd czd ON ZD2.ZD_ICD=CZD.ICD_CODE
+                WHERE ZD2.ZYLSH=ZYBR.ZYLSH AND ZYPJ.ZYLSH=ZD2.ZYLSH
+            ) jbxx
+        FROM his.inpat_settle_invoice ZYPJ
+                 JOIN HIS.PAT_INPAT_ORDER_COST MX ON ZYPJ.JSLSH_ID=MX.JSLSH_ID AND ZYPJ.ZYLSH=MX.ZYLSH_ID
+                 left join mi_trans_info mi
+                           on ZYPJ.JSLSH_ID = mi.js_lsh
+                               and mi.mistatus in ('PAY_OK', 'RECEDE_OK', 'MI_OK')
+                 JOIN GZKBDML_MY ML ON MX.SFXM_ID=ML.YP_ID AND MX.Cd_Id=ML.Yp_Cd_Id
+                 JOIN HIS.V_INPAT_INFO ZYBR ON ZYPJ.ZYLSH=ZYBR.zylsh
+                 JOIN DICTMANAGE.DICT_EMPE YS ON MX.SQ_YSID=YS.KEYNO
+                 JOIN DICTMANAGE.DICT_DEPART BM ON MX.SQ_KSID=BM.BM_ID
+        WHERE
+            ((ZYPJ.zf_flag = '0' AND ZYPJ.js_zje > 0 AND ZYPJ.cjr &lt;&gt;  '99999999') OR
+             (ZYPJ.zf_flag = '1' and ZYPJ.js_zje > 0 and ZYPJ.cjr &lt;&gt;  '99999999'))
+          AND MX.FY_STATUS IN ('2','7')
+          AND ZYPJ.JS_RQ BETWEEN to_date('2019-01-01 00:00:00', 'yyyy-mm-dd hh24:mi:ss') AND to_date('2023-12-21 23:59:59', 'yyyy-mm-dd hh24:mi:ss')
+          AND ZYPJ.JSLSH_ID='1567601'
+    </select>
+    <select id="streamDoHandler2"
+            resultType="com.yin.pojo.qt.yb.Zymxb"
+            resultSetType="FORWARD_ONLY">
+        SELECT
+            ZYBR.pat_name xm,
+            ZYBR.xb xb,
+            ZYBR.sfz_hm sfzh,
+            MX.JS_RQ jssj,
+            MX.SQ_RQ fssj,
+            ZYBR.ybxz fylb,
+            ML.XMDM xmbm,
+            ML.YP_MC mc,
+            ML.GG gg,
+            NVL(ML.dw,F_GETYPDW(MX.SFXM_ID,MX.CD_ID,'3')) dw,
+            CASE WHEN MI.JS_LSH IS NULL THEN '丙' ELSE
+                CASE WHEN MX.RET_YBFL='01' THEN '甲'
+                     WHEN MX.RET_YBFL ='02' THEN '乙'
+                     WHEN MX.RET_YBFL ='03' THEN '丙' ELSE '丙' END END ybdj,
+            MX.TS ts,
+            MX.RET6 zfbl,
+            '' lzje,
+            MX.RET7 zlzfje,
+            YS.XM ysxm,
+            BM.BM_MC ks,
+            (
+                SELECT TO_CHAR(WM_CONCAT(DISTINCT czd.Jb_Mc)) ZDXX FROM
+                    his.pat_inpat_diagnosis zd2
+                        INNER JOIN dictmanage.dict_icd czd ON ZD2.ZD_ICD=CZD.ICD_CODE
+                WHERE ZD2.ZYLSH=ZYBR.ZYLSH AND MX.ZYLSH_ID=ZD2.ZYLSH
+            ) jbxx
+        FROM HIS.PAT_INPAT_ORDER_COST MX
+                 left join mi_trans_info mi
+                           on MX.JSLSH_ID = mi.js_lsh
+                               and mi.mistatus in ('PAY_OK', 'RECEDE_OK', 'MI_OK')
+                 JOIN GZKBDML_MY ML ON MX.SFXM_ID=ML.YP_ID AND MX.Cd_Id=ML.Yp_Cd_Id
+                 JOIN HIS.V_INPAT_INFO ZYBR ON MX.ZYLSH_ID=ZYBR.zylsh
+                 JOIN DICTMANAGE.DICT_EMPE YS ON MX.SQ_YSID=YS.KEYNO
+                 JOIN DICTMANAGE.DICT_DEPART BM ON MX.SQ_KSID=BM.BM_ID
+        WHERE MX.FY_STATUS IN ('2','7')
+          AND MX.SQ_RQ BETWEEN to_date('2019-01-01 00:00:00', 'yyyy-mm-dd hh24:mi:ss') AND to_date('2023-12-21 23:59:59', 'yyyy-mm-dd hh24:mi:ss')
+          AND MX.ZYLSH_ID='1843' AND MX.JSLSH_ID='1567601'
+
+    </select>
+
+
+</mapper>

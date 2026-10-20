@@ -1,0 +1,1 @@
+{"query":{"bool":{"must":[{"query_string":{"query":"\"DrugTraceCodeListWork\" AND \"76948919382700004508\"","default_field":"content"}}]}},"highlight":{"fields":{"content":{"fragment_size":2147483647}}},"sort":[{"dtTime":"desc"},{"seq":"desc"}]}
