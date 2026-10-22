@@ -9,3 +9,4 @@ SELECT  to_char(trunc(sysdate),'yyyy-mm-dd'),'-',INI_ID, m.batch_no, m.depot_id,
  where m.depot_id = ':KF'
 	 and m.drug_id = ':DRUG'
 	 and m.real_storage <> 0
+ORDER BY record_date

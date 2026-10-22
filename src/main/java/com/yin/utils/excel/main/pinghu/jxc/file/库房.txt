@@ -36,4 +36,4 @@ SELECT d.depot_code,
 			 d.allow_night_dispense_flag
 	FROM DICTMANAGE.Dict_Depot d
  where d.del_flag = '0'
-	 and d.depot_code = '06015'
+	 and d.depot_code = '561'
